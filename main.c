@@ -15,10 +15,11 @@
 #define FILE_EXTENSION ".cscc"
 #define FILE_EXTENSION_LENGTH 5
 #define EN_KEY_SIZE 2048
+#define EN_BUFFER_SIZE 2048
 #define KEY_SIZE 2048
 #define BUFFER_SIZE 245
 #define ENCRYPTED_SIZE 256
-#define DECRYPTED_SIZE 245256
+#define DECRYPTED_SIZE 245
 #define RAND() (rand() & 0x7fff)  /* ensure only 15-bits */
 
 typedef uint64_t u64;
@@ -76,6 +77,12 @@ int private_decrypt(unsigned char * enc_data,int data_len,unsigned char * key, u
     int  result = RSA_private_decrypt(data_len,enc_data,decrypted,rsa,padding);
     return result;
 }
+
+int private_decrypt_RSA(unsigned char * enc_data,int data_len, unsigned char *decrypted)
+{
+    int  result = RSA_private_decrypt(data_len,enc_data,decrypted,ramdomRsa,padding);
+    return result;
+}
  
 void printLastError(char *msg)
 {
@@ -87,18 +94,6 @@ void printLastError(char *msg)
 }
  
 void encryptedFile(char* fileName ){
-    
-    // char publicKey[]="-----BEGIN PUBLIC KEY-----\n"\
-    //     "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAy8Dbv8prpJ/0kKhlGeJY\n"\
-    //     "ozo2t60EG8L0561g13R29LvMR5hyvGZlGJpmn65+A4xHXInJYiPuKzrKUnApeLZ+\n"\
-    //     "vw1HocOAZtWK0z3r26uA8kQYOKX9Qt/DbCdvsF9wF8gRK0ptx9M6R13NvBxvVQAp\n"\
-    //     "fc9jB9nTzphOgM4JiEYvlV8FLhg9yZovMYd6Wwf3aoXK891VQxTr/kQYoq1Yp+68\n"\
-    //     "i6T4nNq7NWC+UNVjQHxNQMQMzU6lWCX8zyg3yH88OAQkUXIXKfQ+NkvYQ1cxaMoV\n"\
-    //     "PpY72+eVthKzpMeyHkBn7ciumk5qgLTEJAfWZpe4f4eFZj/Rc8Y8Jj2IS5kVPjUy\n"\
-    //     "wQIDAQAB\n"\
-    //     "-----END PUBLIC KEY-----\n";
-    //     printf("%s\n", PUBLIC_KEY);
-    //     printf("%s\n", publicKey);
     FILE *input;
     FILE *output;
     unsigned char *encrypted;
@@ -133,7 +128,6 @@ void encryptedFile(char* fileName ){
     fclose(input);
     fclose(output);
 
-    // return rsa;
 }
 
 void decryptedFile(char* fileName , unsigned char * privateKey){
@@ -172,6 +166,81 @@ void decryptedFile(char* fileName , unsigned char * privateKey){
     fclose(output);
 }
 
+void decryptedFile_test(char* fileName ){
+    
+    FILE *input;  
+    FILE *output;
+    input = fopen(fileName,"rb");
+    unsigned char *decrypted;
+    unsigned char  *buffer;
+    char* outputName = (char*)malloc(sizeof(char*)* strlen(fileName));
+    strncpy(outputName, fileName, strlen(fileName));
+    outputName[strlen(outputName)-FILE_EXTENSION_LENGTH]='\0';
+ 
+    output = fopen(outputName,"wb");
+
+    buffer = (unsigned char*) malloc (sizeof(unsigned char)*ENCRYPTED_SIZE);
+    memset(buffer,0,ENCRYPTED_SIZE);
+    while( fread (buffer,1,ENCRYPTED_SIZE,input) != 0){
+        
+        decrypted = (unsigned char*) malloc (RSA_size(ramdomRsa));
+        memset(decrypted,0,ENCRYPTED_SIZE);
+        int decrypted_length = private_decrypt_RSA(buffer,ENCRYPTED_SIZE, decrypted);
+        if(decrypted_length == -1)
+        {
+            printLastError("Private Decrypt failed ");
+            exit(0);
+        }
+        
+        fwrite(decrypted,decrypted_length,1,output);
+        buffer = (unsigned char*) malloc (sizeof(unsigned char)*ENCRYPTED_SIZE);
+        memset(buffer,0,ENCRYPTED_SIZE);
+    }
+   
+    fclose(input);
+    fclose(output);
+}
+
+void decryptedKeyEncrypted(){
+    char publicKey[]="-----BEGIN PUBLIC KEY-----\n"\
+        "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAy8Dbv8prpJ/0kKhlGeJY\n"\
+        "ozo2t60EG8L0561g13R29LvMR5hyvGZlGJpmn65+A4xHXInJYiPuKzrKUnApeLZ+\n"\
+        "vw1HocOAZtWK0z3r26uA8kQYOKX9Qt/DbCdvsF9wF8gRK0ptx9M6R13NvBxvVQAp\n"\
+        "fc9jB9nTzphOgM4JiEYvlV8FLhg9yZovMYd6Wwf3aoXK891VQxTr/kQYoq1Yp+68\n"\
+        "i6T4nNq7NWC+UNVjQHxNQMQMzU6lWCX8zyg3yH88OAQkUXIXKfQ+NkvYQ1cxaMoV\n"\
+        "PpY72+eVthKzpMeyHkBn7ciumk5qgLTEJAfWZpe4f4eFZj/Rc8Y8Jj2IS5kVPjUy\n"\
+        "wQIDAQAB\n"\
+        "-----END PUBLIC KEY-----";
+    int keylen;
+    char *pem_key;
+    unsigned char *tmp = (unsigned char*) malloc (sizeof(unsigned char)*EN_BUFFER_SIZE);;
+    BIO *bio = BIO_new(BIO_s_mem());
+    
+    PEM_write_bio_RSAPrivateKey(bio, ramdomRsa, NULL, NULL, 0, NULL, NULL);
+    keylen = BIO_pending(bio);
+    pem_key = calloc(keylen+1, 1); /* Null-terminate */
+    BIO_read(bio, pem_key, keylen);
+
+    FILE *output = fopen("outputPrivateKey","wb+");
+    unsigned char *encrypted;
+    unsigned char  *buffer;
+    encrypted = (unsigned char*) malloc (sizeof(unsigned char)*ENCRYPTED_SIZE);
+    buffer = (unsigned char*) malloc (sizeof(unsigned char)*BUFFER_SIZE);
+    memset(buffer,0,ENCRYPTED_SIZE);
+    memset(buffer,0,BUFFER_SIZE);
+
+    for (int i = 0; i <= strlen(pem_key); ){
+        int len = strlen(pem_key)-i < BUFFER_SIZE ?strlen(pem_key)%BUFFER_SIZE : BUFFER_SIZE;
+        memcpy(buffer, &pem_key[i], len);
+        int encrypted_length = public_encrypt(buffer,BUFFER_SIZE,publicKey,encrypted);
+        fwrite(encrypted,encrypted_length,1,output);
+        memset(buffer,0,BUFFER_SIZE);
+        memset(buffer,0,ENCRYPTED_SIZE);
+        i+=BUFFER_SIZE+1;
+    }
+    fclose(output);
+}
+
 unsigned long long lrand() {
     srand(time(0));
     return ((u64)RAND()<<48) ^ ((u64)RAND()<<35) ^ ((u64)RAND()<<22) ^
@@ -187,20 +256,6 @@ void randomKey(){
     }
     RSA *rsa = RSA_generate_key(KEY_SIZE, prime, 0, 0);
     ramdomRsa = rsa;
-    // BIO *bio = BIO_new(BIO_s_mem());
-
-    // PEM_write_bio_RSAPrivateKey(bio, rsa, NULL, NULL, 0, NULL, NULL);
-    // keylen = BIO_pending(bio);
-    // PRIVATE_KEY = calloc(keylen+1, 1); /* Null-terminate */
-    // BIO_read(bio, PRIVATE_KEY, keylen);
-
-    
-    // PEM_write_bio_RSAPublicKey(bio , rsa);
-    // keylen = BIO_pending(bio);
-    // PUBLIC_KEY = calloc(keylen+1, 1); /* Null-terminate */
-    // BIO_read(bio, PUBLIC_KEY, keylen);
-    
-    // RSA_free(rsa);
 }
 int main(int argc, char *argv[])
 {
@@ -242,8 +297,8 @@ int main(int argc, char *argv[])
         // "-----END RSA PRIVATE KEY-----\n";
 
     encryptedFile("1_BS0BI_1200x0.jpg");
-    // decryptedFile("1_BS0BI_1200x0.jpg.cscc",PRIVATE_KEY);
- 
+    decryptedFile_test("1_BS0BI_1200x0.jpg.cscc");
+    decryptedKeyEncrypted();
      
 
 
